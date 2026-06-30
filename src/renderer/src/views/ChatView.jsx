@@ -197,6 +197,12 @@ export default function ChatView({ onDataChanged }) {
     })
   }
 
+  // Check if the preload bridge is available
+  const getApi = () => {
+    if (!window.api) throw new Error('App bridge not ready — please restart the application.')
+    return window.api
+  }
+
   // Send a regular chat message
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return
@@ -217,19 +223,19 @@ export default function ChatView({ onDataChanged }) {
     }])
 
     try {
-      const res = await window.api.chat.send(history)
+      const res = await getApi().chat.send(history)
       if (res.success) {
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
           ...m, content: res.text, loading: false
         } : m))
       } else {
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
-          ...m, content: `⚠️ Error: ${res.error}`, loading: false
+          ...m, content: `⚠️ ${res.error}`, loading: false
         } : m))
       }
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === thinkingId ? {
-        ...m, content: `⚠️ Connection error: ${err.message}`, loading: false
+        ...m, content: `⚠️ ${err.message}`, loading: false
       } : m))
     }
     setLoading(false)
@@ -237,6 +243,10 @@ export default function ChatView({ onDataChanged }) {
 
   // Full ETL pipeline
   const runETL = async (filePath) => {
+    if (!window.api) {
+      addMsg({ role: 'assistant', content: '⚠️ App bridge not ready — please restart the application.' })
+      return
+    }
     setLoading(true)
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop()
 
@@ -273,19 +283,19 @@ export default function ChatView({ onDataChanged }) {
 
     try {
       // Step 1: Parse PDF
-      const pdfResult = await window.api.etl.parsePdf(filePath)
+      const pdfResult = await getApi().etl.parsePdf(filePath)
       if (!pdfResult.success) throw new Error(`PDF parse failed: ${pdfResult.error}`)
       updateStages(0, 'done', `${pdfResult.pages} pages`)
 
       // Step 2: Generate script
       updateStages(1, 'active')
-      const scriptResult = await window.api.etl.generateScript(pdfResult.text, fileName)
+      const scriptResult = await getApi().etl.generateScript(pdfResult.text, fileName)
       if (!scriptResult.success) throw new Error(`Script generation failed: ${scriptResult.error}`)
       updateStages(1, 'done', 'Script ready')
 
       // Step 3: Run extraction
       updateStages(2, 'active')
-      const runResult = await window.api.etl.runScript(scriptResult.script, pdfResult.text)
+      const runResult = await getApi().etl.runScript(scriptResult.script, pdfResult.text)
       if (!runResult.success) throw new Error(`Extraction failed: ${runResult.error}`)
       updateStages(2, 'done', `${runResult.count} candidates`)
 
@@ -313,7 +323,7 @@ export default function ChatView({ onDataChanged }) {
           pendingConfirm: true,
           timestamp: Date.now(),
           onConfirm: async () => {
-            const saveResult = await window.api.db.insertRecords(valid, filePath)
+            const saveResult = await getApi().db.insertRecords(valid, filePath)
             if (saveResult.success) {
               setMessages(prev => prev.map(m => m.id === progressMsgId ? {
                 ...m, pendingConfirm: false,
@@ -341,7 +351,8 @@ export default function ChatView({ onDataChanged }) {
   }
 
   const handleUploadPDF = async () => {
-    const result = await window.api.files.openDialog({
+    if (!window.api) return
+    const result = await getApi().files.openDialog({
       filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
       title: 'Select Cable Catalog PDF'
     })

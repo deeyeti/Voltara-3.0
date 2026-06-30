@@ -1,7 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+const { contextBridge, ipcRenderer } = require('electron')
 
-// Full CableVault API bridge
+// Full CableVault API bridge exposed to renderer
 const api = {
   // Chat & Gemini AI
   chat: {
@@ -45,14 +44,10 @@ const api = {
   }
 }
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
-  }
-} else {
-  window.electron = electronAPI
+try {
+  contextBridge.exposeInMainWorld('api', api)
+} catch (err) {
+  console.error('[Preload] contextBridge failed:', err)
+  // Fallback for non-isolated context (dev without sandbox)
   window.api = api
 }

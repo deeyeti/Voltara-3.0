@@ -12,7 +12,15 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    // Use CJS format so require('electron') works natively in Electron's preload context
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'cjs'
+        },
+        external: ['electron']
+      }
+    }
   },
   renderer: {
     resolve: {
