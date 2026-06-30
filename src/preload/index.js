@@ -42,9 +42,26 @@ const api = {
     saveDialog: (options) => ipcRenderer.invoke('files:save-dialog', options),
     openExternal: (filePath) => ipcRenderer.invoke('files:open-external', filePath),
     getDrives: () => ipcRenderer.invoke('files:get-drives')
+  },
+
+  // Ollama local LLM
+  ollama: {
+    test: () => ipcRenderer.invoke('ollama:test'),
+    configure: (config) => ipcRenderer.invoke('ollama:configure', config),
+    getConfig: () => ipcRenderer.invoke('ollama:get-config'),
+    chat: (messages) => ipcRenderer.invoke('ollama:chat', { messages }),
+    generateScript: (pdfText, fileName) =>
+      ipcRenderer.invoke('ollama:generate-script', { pdfText, fileName }),
+    pull: (modelName) => ipcRenderer.invoke('ollama:pull', modelName)
+  },
+
+  // Security
+  security: {
+    scan: (text) => ipcRenderer.invoke('security:scan', text)
   }
 }
 
+<<<<<<< Updated upstream
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -54,5 +71,11 @@ if (process.contextIsolated) {
   }
 } else {
   window.electron = electronAPI
+=======
+try {
+  contextBridge.exposeInMainWorld('api', api)
+} catch (err) {
+  console.error('[Preload] contextBridge failed:', err)
+>>>>>>> Stashed changes
   window.api = api
 }

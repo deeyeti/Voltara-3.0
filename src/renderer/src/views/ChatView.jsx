@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Upload, FileText, CheckCircle, XCircle,
   AlertCircle, Loader, ChevronDown, ChevronRight,
-  Code, Database, Zap, Copy, Check
+  Code, Database, Zap, Copy, Check, Shield, Server, Globe, AlertTriangle
 } from 'lucide-react'
 
 // ─── ETL Stage Tracking ─────────────────────────────────────────────────────
@@ -174,14 +174,25 @@ export default function ChatView({ onDataChanged }) {
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [etlPendingFile, setEtlPendingFile] = useState(null)
+  const [securityAlert, setSecurityAlert] = useState(null) // { type: 'pii'|'block', message }
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const msgIdRef = useRef(100)
 
+  // Read active backend from localStorage (set by Settings)
+  const backend = localStorage.getItem('cv_backend') || 'gemini'
+  const piiEnabled = localStorage.getItem('cv_pii') !== 'false'
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Auto-dismiss security alert after 5s
+  useEffect(() => {
+    if (!securityAlert) return
+    const t = setTimeout(() => setSecurityAlert(null), 5000)
+    return () => clearTimeout(t)
+  }, [securityAlert])
 
   const newId = () => ++msgIdRef.current
 
@@ -197,6 +208,33 @@ export default function ChatView({ onDataChanged }) {
     })
   }
 
+<<<<<<< Updated upstream
+=======
+  // Check if the preload bridge is available
+  const getApi = () => {
+    if (!window.api) throw new Error('App bridge not ready — please restart the application.')
+    return window.api
+  }
+
+  // Route chat to selected backend
+  const backendChat = async (history) => {
+    const api = getApi()
+    if (backend === 'ollama') {
+      return api.ollama.chat(history)
+    }
+    return api.chat.send(history)
+  }
+
+  // Route ETL script gen to selected backend
+  const backendGenerateScript = async (pdfText, fileName) => {
+    const api = getApi()
+    if (backend === 'ollama') {
+      return api.ollama.generateScript(pdfText, fileName)
+    }
+    return api.etl.generateScript(pdfText, fileName)
+  }
+
+>>>>>>> Stashed changes
   // Send a regular chat message
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return
@@ -217,12 +255,18 @@ export default function ChatView({ onDataChanged }) {
     }])
 
     try {
+<<<<<<< Updated upstream
       const res = await window.api.chat.send(history)
+=======
+      const res = await backendChat(history)
+>>>>>>> Stashed changes
       if (res.success) {
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
           ...m, content: res.text, loading: false
         } : m))
       } else {
+        // Check if it was a security block
+        if (res.blocked) setSecurityAlert({ type: 'block', message: res.error })
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
           ...m, content: `⚠️ Error: ${res.error}`, loading: false
         } : m))
@@ -277,11 +321,15 @@ export default function ChatView({ onDataChanged }) {
       if (!pdfResult.success) throw new Error(`PDF parse failed: ${pdfResult.error}`)
       updateStages(0, 'done', `${pdfResult.pages} pages`)
 
-      // Step 2: Generate script
+      // Step 2: Generate script (routed to active backend)
       updateStages(1, 'active')
+<<<<<<< Updated upstream
       const scriptResult = await window.api.etl.generateScript(pdfResult.text, fileName)
+=======
+      const scriptResult = await backendGenerateScript(pdfResult.text, fileName)
+>>>>>>> Stashed changes
       if (!scriptResult.success) throw new Error(`Script generation failed: ${scriptResult.error}`)
-      updateStages(1, 'done', 'Script ready')
+      updateStages(1, 'done', `Script ready (${backend})`)
 
       // Step 3: Run extraction
       updateStages(2, 'active')
@@ -377,6 +425,20 @@ export default function ChatView({ onDataChanged }) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Security alert toast */}
+      {securityAlert && (
+        <div style={{
+          margin: '0 16px 8px', padding: '10px 14px', borderRadius: 8,
+          background: securityAlert.type === 'block' ? 'var(--accent-red-dim)' : 'rgba(245,158,11,0.1)',
+          border: `1px solid ${securityAlert.type === 'block' ? 'var(--accent-red)' : 'var(--accent-amber)'}`,
+          display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12
+        }}>
+          <Shield size={13} style={{ color: securityAlert.type === 'block' ? 'var(--accent-red)' : 'var(--accent-amber)', marginTop: 1, flexShrink: 0 }} />
+          <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{securityAlert.message}</span>
+          <button onClick={() => setSecurityAlert(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, fontSize: 14 }}>×</button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="chat-toolbar">
         <button className="btn btn-secondary btn-sm" onClick={handleUploadPDF} disabled={loading}>
@@ -387,6 +449,28 @@ export default function ChatView({ onDataChanged }) {
           <Zap size={10} />
           Code-based extraction
         </span>
+
+        {/* Backend badge */}
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+          padding: '3px 8px', borderRadius: 20,
+          background: backend === 'ollama' ? 'rgba(52,211,153,0.1)' : 'rgba(99,102,241,0.1)',
+          border: `1px solid ${backend === 'ollama' ? 'var(--accent-green)' : 'var(--accent-primary)'}`,
+          color: backend === 'ollama' ? 'var(--accent-green)' : 'var(--accent-primary)'
+        }}>
+          {backend === 'ollama' ? <Server size={10} /> : <Globe size={10} />}
+          {backend === 'ollama' ? 'Ollama' : 'Gemini'}
+        </span>
+
+        {/* Security badge */}
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
+          color: 'var(--accent-amber)', opacity: 0.7
+        }}>
+          <Shield size={10} />
+          Protected
+        </span>
+
         <div style={{ flex: 1 }} />
         {loading && (
           <div className="flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -395,6 +479,7 @@ export default function ChatView({ onDataChanged }) {
           </div>
         )}
       </div>
+
 
       {/* Input */}
       <div className="chat-input-area">
