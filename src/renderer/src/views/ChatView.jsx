@@ -2,8 +2,15 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Upload, FileText, CheckCircle, XCircle,
   AlertCircle, Loader, ChevronDown, ChevronRight,
-  Code, Database, Zap, Copy, Check, Shield, Server, Globe, AlertTriangle
+  Code, Database, Zap, Copy, Check, Shield, Server, Globe, AlertTriangle, Trash2
 } from 'lucide-react'
+
+const WELCOME_MSG = {
+  id: 1,
+  role: 'assistant',
+  content: `👋 Welcome to **CableVault AI**!\n\nI'm your intelligent ETL assistant for cable catalog data. Here's what I can do:\n\n• **Extract data** from PDF catalogs — I'll generate extraction code, run it safely, and let you review before saving\n• **Answer questions** about cable specs, IEC/BS standards, and more\n• **Process catalogs** by clicking "Upload PDF" below or dragging a PDF here\n\nTo get started, upload a cable catalog PDF!`,
+  timestamp: Date.now()
+}
 
 // ─── ETL Stage Tracking ─────────────────────────────────────────────────────
 function ETLProgress({ stages }) {
@@ -164,14 +171,8 @@ function Message({ msg }) {
 
 // ─── Main Chat View ──────────────────────────────────────────────────────────
 export default function ChatView({ onDataChanged }) {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      role: 'assistant',
-      content: `👋 Welcome to **CableVault AI**!\n\nI'm your intelligent ETL assistant for cable catalog data. Here's what I can do:\n\n• **Extract data** from PDF catalogs — I'll generate extraction code, run it safely, and let you review before saving\n• **Answer questions** about cable specs, IEC/BS standards, and more\n• **Process catalogs** by clicking "Upload PDF" below or dragging a PDF here\n\nTo get started, upload a cable catalog PDF!`,
-      timestamp: Date.now()
-    }
-  ])
+  const [messages, setMessages] = useState([WELCOME_MSG])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [securityAlert, setSecurityAlert] = useState(null) // { type: 'pii'|'block', message }
@@ -183,6 +184,35 @@ export default function ChatView({ onDataChanged }) {
   const backend = localStorage.getItem('cv_backend') || 'gemini'
   const piiEnabled = localStorage.getItem('cv_pii') !== 'false'
 
+  // Load persisted chat history on mount
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const saved = await window.api?.storage?.get('chat_history')
+        if (saved && Array.isArray(saved) && saved.length > 0) {
+          // Strip interactive callbacks (they can't be serialised)
+          const restored = saved.map(m => ({ ...m, onConfirm: undefined, onDiscard: undefined, pendingConfirm: false }))
+          setMessages(restored)
+          const maxId = Math.max(...restored.map(m => m.id || 0), 100)
+          msgIdRef.current = maxId
+        }
+      } catch {/* ignore */}
+      setHistoryLoaded(true)
+    }
+    load()
+  }, [])
+
+  // Persist chat history whenever messages change (after initial load)
+  useEffect(() => {
+    if (!historyLoaded) return
+    // Strip non-serialisable fields before saving
+    const toSave = messages.map(m => {
+      const { onConfirm, onDiscard, ...rest } = m
+      return rest
+    })
+    window.api?.storage?.set('chat_history', toSave)
+  }, [messages, historyLoaded])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -193,6 +223,12 @@ export default function ChatView({ onDataChanged }) {
     const t = setTimeout(() => setSecurityAlert(null), 5000)
     return () => clearTimeout(t)
   }, [securityAlert])
+
+  const clearChat = async () => {
+    setMessages([{ ...WELCOME_MSG, id: 1, timestamp: Date.now() }])
+    msgIdRef.current = 100
+    await window.api?.storage?.delete('chat_history')
+  }
 
   const newId = () => ++msgIdRef.current
 
@@ -208,8 +244,6 @@ export default function ChatView({ onDataChanged }) {
     })
   }
 
-<<<<<<< Updated upstream
-=======
   // Check if the preload bridge is available
   const getApi = () => {
     if (!window.api) throw new Error('App bridge not ready — please restart the application.')
@@ -233,8 +267,6 @@ export default function ChatView({ onDataChanged }) {
     }
     return api.etl.generateScript(pdfText, fileName)
   }
-
->>>>>>> Stashed changes
   // Send a regular chat message
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return
@@ -255,11 +287,7 @@ export default function ChatView({ onDataChanged }) {
     }])
 
     try {
-<<<<<<< Updated upstream
-      const res = await window.api.chat.send(history)
-=======
       const res = await backendChat(history)
->>>>>>> Stashed changes
       if (res.success) {
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
           ...m, content: res.text, loading: false
@@ -323,11 +351,7 @@ export default function ChatView({ onDataChanged }) {
 
       // Step 2: Generate script (routed to active backend)
       updateStages(1, 'active')
-<<<<<<< Updated upstream
-      const scriptResult = await window.api.etl.generateScript(pdfResult.text, fileName)
-=======
       const scriptResult = await backendGenerateScript(pdfResult.text, fileName)
->>>>>>> Stashed changes
       if (!scriptResult.success) throw new Error(`Script generation failed: ${scriptResult.error}`)
       updateStages(1, 'done', `Script ready (${backend})`)
 
@@ -449,6 +473,16 @@ export default function ChatView({ onDataChanged }) {
           <Zap size={10} />
           Code-based extraction
         </span>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={clearChat}
+          disabled={loading}
+          title="Clear chat history"
+          style={{ marginLeft: 'auto', color: 'var(--text-muted)', gap: 4 }}
+        >
+          <Trash2 size={12} />
+          Clear
+        </button>
 
         {/* Backend badge */}
         <span style={{

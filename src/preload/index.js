@@ -58,10 +58,16 @@ const api = {
   // Security
   security: {
     scan: (text) => ipcRenderer.invoke('security:scan', text)
+  },
+
+  // Persistent local storage (JSON files in userData)
+  storage: {
+    get: (key) => ipcRenderer.invoke('storage:get', key),
+    set: (key, value) => ipcRenderer.invoke('storage:set', key, value),
+    delete: (key) => ipcRenderer.invoke('storage:delete', key)
   }
 }
 
-<<<<<<< Updated upstream
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
@@ -71,11 +77,5 @@ if (process.contextIsolated) {
   }
 } else {
   window.electron = electronAPI
-=======
-try {
-  contextBridge.exposeInMainWorld('api', api)
-} catch (err) {
-  console.error('[Preload] contextBridge failed:', err)
->>>>>>> Stashed changes
   window.api = api
 }

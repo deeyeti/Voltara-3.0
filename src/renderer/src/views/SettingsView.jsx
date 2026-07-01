@@ -27,14 +27,14 @@ export default function SettingsView({ onBackendChange }) {
   // Gemini
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
-  const [geminiModel, setGeminiModel] = useState('gemini-1.5-flash')
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash')
   const [geminiSaving, setGeminiSaving] = useState(false)
   const [geminiTest, setGeminiTest] = useState(null)
   const [geminiTesting, setGeminiTesting] = useState(false)
 
   // Ollama
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
-  const [ollamaModel, setOllamaModel] = useState('llama3.2')
+  const [ollamaModel, setOllamaModel] = useState('gemma4:e4b')
   const [ollamaModels, setOllamaModels] = useState([])
   const [ollamaTest, setOllamaTest] = useState(null)
   const [ollamaTesting, setOllamaTesting] = useState(false)
@@ -48,7 +48,25 @@ export default function SettingsView({ onBackendChange }) {
   const [promptGuard, setPromptGuard] = useState(() => localStorage.getItem('cv_guard') !== 'false')
 
   useEffect(() => {
-    // Load Ollama config from main
+    // Load persisted settings (API key, model) from local file storage
+    const loadSettings = async () => {
+      try {
+        const saved = await window.api?.storage?.get('settings')
+        if (saved) {
+          if (saved.apiKey) {
+            setApiKey(saved.apiKey)
+            // Also restore the key into the main process so it's immediately usable
+            await window.api?.chat?.setApiKey(saved.apiKey)
+          }
+          if (saved.geminiModel) setGeminiModel(saved.geminiModel)
+          if (saved.ollamaUrl) setOllamaUrl(saved.ollamaUrl)
+          if (saved.ollamaModel) setOllamaModel(saved.ollamaModel)
+        }
+      } catch {/* ignore */}
+    }
+    loadSettings()
+
+    // Load Ollama config from main process
     if (window.api?.ollama) {
       window.api.ollama.getConfig().then(cfg => {
         setOllamaUrl(cfg.url)
@@ -61,6 +79,8 @@ export default function SettingsView({ onBackendChange }) {
     if (!window.api) return
     setGeminiSaving(true)
     await window.api.chat.setApiKey(apiKey)
+    // Persist settings to disk
+    await window.api.storage.set('settings', { apiKey, geminiModel, ollamaUrl, ollamaModel })
     setTimeout(() => setGeminiSaving(false), 1500)
   }
 
@@ -88,6 +108,7 @@ export default function SettingsView({ onBackendChange }) {
   const saveOllamaConfig = async () => {
     if (!window.api) return
     await window.api.ollama.configure({ url: ollamaUrl, model: ollamaModel })
+    await window.api.storage.set('settings', { apiKey, geminiModel, ollamaUrl, ollamaModel })
   }
 
   const pullModel = async (name) => {
@@ -204,9 +225,10 @@ export default function SettingsView({ onBackendChange }) {
 
         <Field label="Model">
           <select className="input" value={geminiModel} onChange={e => setGeminiModel(e.target.value)}>
-            <option value="gemini-1.5-flash">gemini-1.5-flash (Fast, recommended)</option>
-            <option value="gemini-1.5-pro">gemini-1.5-pro (Most capable)</option>
-            <option value="gemini-2.0-flash">gemini-2.0-flash (Latest)</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash (Fast, recommended)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (Most capable)</option>
+            <option value="gemini-3.5-flash">gemini-3.5-flash (Latest)</option>
           </select>
         </Field>
 

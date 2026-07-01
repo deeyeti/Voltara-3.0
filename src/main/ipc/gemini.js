@@ -93,14 +93,21 @@ export function registerGeminiHandlers() {
 
     try {
       const model = ai.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         systemInstruction: ETL_SYSTEM_PROMPT
       })
 
-      const history = messages.slice(0, -1).map(m => ({
+      // Build history from all messages except the last (which we send as the new message).
+      // Gemini requires the history to start with a 'user' turn, so strip any leading
+      // assistant/model messages (e.g. the welcome message restored from disk).
+      let history = messages.slice(0, -1).map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }]
+        parts: [{ text: m.content || '' }]
       }))
+      // Drop leading model turns
+      while (history.length > 0 && history[0].role === 'model') {
+        history = history.slice(1)
+      }
 
       const chat = model.startChat({ history })
       const result = await chat.sendMessage(messages[messages.length - 1].content)
@@ -134,7 +141,7 @@ export function registerGeminiHandlers() {
       // Scan PDF text for PII before sending to cloud (redact just in case)
       const { redacted } = redactPii(pdfText.substring(0, 6000))
 
-      const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash' })
       const prompt = `Analyze this cable catalog PDF text and write a JavaScript extraction function.
 
 File: ${fileName}
@@ -231,7 +238,7 @@ Return ONLY the function code, no markdown, no explanation:`
     const ai = getGenAI()
     if (!ai) return { success: false, error: 'No API key configured' }
     try {
-      const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash' })
       const result = await model.generateContent('Say exactly: "CableVault connected!"')
       return { success: true, message: result.response.text() }
     } catch (err) {

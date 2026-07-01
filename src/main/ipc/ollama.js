@@ -7,7 +7,7 @@ import { applySecurityChecks } from './gemini.js'
 import { redactPii } from '../security/pii.js'
 
 let ollamaBaseUrl = 'http://localhost:11434'
-let ollamaModel = 'llama3.2'
+let ollamaModel = 'gemma4:e4b'
 
 const OLLAMA_SYSTEM_PROMPT = `You are CableVault AI, an expert ETL assistant specialized in cable catalog data.
 

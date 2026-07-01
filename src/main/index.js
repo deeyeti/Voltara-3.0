@@ -6,6 +6,7 @@ import { registerGeminiHandlers } from './ipc/gemini.js'
 import { registerDbHandlers } from './ipc/db.js'
 import { registerFileHandlers } from './ipc/files.js'
 import { registerOllamaHandlers } from './ipc/ollama.js'
+import { registerStorageHandlers } from './ipc/storage.js'
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -64,6 +65,7 @@ app.whenReady().then(async () => {
   registerDbHandlers(appDataPath)
   registerFileHandlers()
   registerOllamaHandlers()
+  registerStorageHandlers(appDataPath)
 
   createWindow()
 
