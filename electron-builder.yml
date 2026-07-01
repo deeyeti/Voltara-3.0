@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: cablevault
+appId: com.cablevault.app
+productName: CableVault
 directories:
   buildResources: build
 files:

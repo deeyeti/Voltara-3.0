@@ -2,8 +2,15 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Send, Upload, FileText, CheckCircle, XCircle,
   AlertCircle, Loader, ChevronDown, ChevronRight,
-  Code, Database, Zap, Copy, Check
+  Code, Database, Zap, Copy, Check, Shield, Server, Globe, AlertTriangle, Trash2
 } from 'lucide-react'
+
+const WELCOME_MSG = {
+  id: 1,
+  role: 'assistant',
+  content: `👋 Welcome to **CableVault AI**!\n\nI'm your intelligent ETL assistant for cable catalog data. Here's what I can do:\n\n• **Extract data** from PDF catalogs — I'll generate extraction code, run it safely, and let you review before saving\n• **Answer questions** about cable specs, IEC/BS standards, and more\n• **Process catalogs** by clicking "Upload PDF" below or dragging a PDF here\n\nTo get started, upload a cable catalog PDF!`,
+  timestamp: Date.now()
+}
 
 // ─── ETL Stage Tracking ─────────────────────────────────────────────────────
 function ETLProgress({ stages }) {
@@ -164,24 +171,64 @@ function Message({ msg }) {
 
 // ─── Main Chat View ──────────────────────────────────────────────────────────
 export default function ChatView({ onDataChanged }) {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      role: 'assistant',
-      content: `👋 Welcome to **CableVault AI**!\n\nI'm your intelligent ETL assistant for cable catalog data. Here's what I can do:\n\n• **Extract data** from PDF catalogs — I'll generate extraction code, run it safely, and let you review before saving\n• **Answer questions** about cable specs, IEC/BS standards, and more\n• **Process catalogs** by clicking "Upload PDF" below or dragging a PDF here\n\nTo get started, upload a cable catalog PDF!`,
-      timestamp: Date.now()
-    }
-  ])
+  const [messages, setMessages] = useState([WELCOME_MSG])
+  const [historyLoaded, setHistoryLoaded] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [etlPendingFile, setEtlPendingFile] = useState(null)
+  const [securityAlert, setSecurityAlert] = useState(null) // { type: 'pii'|'block', message }
   const messagesEndRef = useRef(null)
   const textareaRef = useRef(null)
   const msgIdRef = useRef(100)
 
+  // Read active backend from localStorage (set by Settings)
+  const backend = localStorage.getItem('cv_backend') || 'gemini'
+  const piiEnabled = localStorage.getItem('cv_pii') !== 'false'
+
+  // Load persisted chat history on mount
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const saved = await window.api?.storage?.get('chat_history')
+        if (saved && Array.isArray(saved) && saved.length > 0) {
+          // Strip interactive callbacks (they can't be serialised)
+          const restored = saved.map(m => ({ ...m, onConfirm: undefined, onDiscard: undefined, pendingConfirm: false }))
+          setMessages(restored)
+          const maxId = Math.max(...restored.map(m => m.id || 0), 100)
+          msgIdRef.current = maxId
+        }
+      } catch {/* ignore */}
+      setHistoryLoaded(true)
+    }
+    load()
+  }, [])
+
+  // Persist chat history whenever messages change (after initial load)
+  useEffect(() => {
+    if (!historyLoaded) return
+    // Strip non-serialisable fields before saving
+    const toSave = messages.map(m => {
+      const { onConfirm, onDiscard, ...rest } = m
+      return rest
+    })
+    window.api?.storage?.set('chat_history', toSave)
+  }, [messages, historyLoaded])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Auto-dismiss security alert after 5s
+  useEffect(() => {
+    if (!securityAlert) return
+    const t = setTimeout(() => setSecurityAlert(null), 5000)
+    return () => clearTimeout(t)
+  }, [securityAlert])
+
+  const clearChat = async () => {
+    setMessages([{ ...WELCOME_MSG, id: 1, timestamp: Date.now() }])
+    msgIdRef.current = 100
+    await window.api?.storage?.delete('chat_history')
+  }
 
   const newId = () => ++msgIdRef.current
 
@@ -203,6 +250,23 @@ export default function ChatView({ onDataChanged }) {
     return window.api
   }
 
+  // Route chat to selected backend
+  const backendChat = async (history) => {
+    const api = getApi()
+    if (backend === 'ollama') {
+      return api.ollama.chat(history)
+    }
+    return api.chat.send(history)
+  }
+
+  // Route ETL script gen to selected backend
+  const backendGenerateScript = async (pdfText, fileName) => {
+    const api = getApi()
+    if (backend === 'ollama') {
+      return api.ollama.generateScript(pdfText, fileName)
+    }
+    return api.etl.generateScript(pdfText, fileName)
+  }
   // Send a regular chat message
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return
@@ -223,19 +287,21 @@ export default function ChatView({ onDataChanged }) {
     }])
 
     try {
-      const res = await getApi().chat.send(history)
+      const res = await backendChat(history)
       if (res.success) {
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
           ...m, content: res.text, loading: false
         } : m))
       } else {
+        // Check if it was a security block
+        if (res.blocked) setSecurityAlert({ type: 'block', message: res.error })
         setMessages(prev => prev.map(m => m.id === thinkingId ? {
-          ...m, content: `⚠️ ${res.error}`, loading: false
+          ...m, content: `⚠️ Error: ${res.error}`, loading: false
         } : m))
       }
     } catch (err) {
       setMessages(prev => prev.map(m => m.id === thinkingId ? {
-        ...m, content: `⚠️ ${err.message}`, loading: false
+        ...m, content: `⚠️ Connection error: ${err.message}`, loading: false
       } : m))
     }
     setLoading(false)
@@ -243,10 +309,6 @@ export default function ChatView({ onDataChanged }) {
 
   // Full ETL pipeline
   const runETL = async (filePath) => {
-    if (!window.api) {
-      addMsg({ role: 'assistant', content: '⚠️ App bridge not ready — please restart the application.' })
-      return
-    }
     setLoading(true)
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop()
 
@@ -283,19 +345,19 @@ export default function ChatView({ onDataChanged }) {
 
     try {
       // Step 1: Parse PDF
-      const pdfResult = await getApi().etl.parsePdf(filePath)
+      const pdfResult = await window.api.etl.parsePdf(filePath)
       if (!pdfResult.success) throw new Error(`PDF parse failed: ${pdfResult.error}`)
       updateStages(0, 'done', `${pdfResult.pages} pages`)
 
-      // Step 2: Generate script
+      // Step 2: Generate script (routed to active backend)
       updateStages(1, 'active')
-      const scriptResult = await getApi().etl.generateScript(pdfResult.text, fileName)
+      const scriptResult = await backendGenerateScript(pdfResult.text, fileName)
       if (!scriptResult.success) throw new Error(`Script generation failed: ${scriptResult.error}`)
-      updateStages(1, 'done', 'Script ready')
+      updateStages(1, 'done', `Script ready (${backend})`)
 
       // Step 3: Run extraction
       updateStages(2, 'active')
-      const runResult = await getApi().etl.runScript(scriptResult.script, pdfResult.text)
+      const runResult = await window.api.etl.runScript(scriptResult.script, pdfResult.text)
       if (!runResult.success) throw new Error(`Extraction failed: ${runResult.error}`)
       updateStages(2, 'done', `${runResult.count} candidates`)
 
@@ -323,7 +385,7 @@ export default function ChatView({ onDataChanged }) {
           pendingConfirm: true,
           timestamp: Date.now(),
           onConfirm: async () => {
-            const saveResult = await getApi().db.insertRecords(valid, filePath)
+            const saveResult = await window.api.db.insertRecords(valid, filePath)
             if (saveResult.success) {
               setMessages(prev => prev.map(m => m.id === progressMsgId ? {
                 ...m, pendingConfirm: false,
@@ -351,8 +413,7 @@ export default function ChatView({ onDataChanged }) {
   }
 
   const handleUploadPDF = async () => {
-    if (!window.api) return
-    const result = await getApi().files.openDialog({
+    const result = await window.api.files.openDialog({
       filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
       title: 'Select Cable Catalog PDF'
     })
@@ -388,6 +449,20 @@ export default function ChatView({ onDataChanged }) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Security alert toast */}
+      {securityAlert && (
+        <div style={{
+          margin: '0 16px 8px', padding: '10px 14px', borderRadius: 8,
+          background: securityAlert.type === 'block' ? 'var(--accent-red-dim)' : 'rgba(245,158,11,0.1)',
+          border: `1px solid ${securityAlert.type === 'block' ? 'var(--accent-red)' : 'var(--accent-amber)'}`,
+          display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12
+        }}>
+          <Shield size={13} style={{ color: securityAlert.type === 'block' ? 'var(--accent-red)' : 'var(--accent-amber)', marginTop: 1, flexShrink: 0 }} />
+          <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{securityAlert.message}</span>
+          <button onClick={() => setSecurityAlert(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0, fontSize: 14 }}>×</button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="chat-toolbar">
         <button className="btn btn-secondary btn-sm" onClick={handleUploadPDF} disabled={loading}>
@@ -398,6 +473,38 @@ export default function ChatView({ onDataChanged }) {
           <Zap size={10} />
           Code-based extraction
         </span>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={clearChat}
+          disabled={loading}
+          title="Clear chat history"
+          style={{ marginLeft: 'auto', color: 'var(--text-muted)', gap: 4 }}
+        >
+          <Trash2 size={12} />
+          Clear
+        </button>
+
+        {/* Backend badge */}
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+          padding: '3px 8px', borderRadius: 20,
+          background: backend === 'ollama' ? 'rgba(52,211,153,0.1)' : 'rgba(99,102,241,0.1)',
+          border: `1px solid ${backend === 'ollama' ? 'var(--accent-green)' : 'var(--accent-primary)'}`,
+          color: backend === 'ollama' ? 'var(--accent-green)' : 'var(--accent-primary)'
+        }}>
+          {backend === 'ollama' ? <Server size={10} /> : <Globe size={10} />}
+          {backend === 'ollama' ? 'Ollama' : 'Gemini'}
+        </span>
+
+        {/* Security badge */}
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 4, fontSize: 11,
+          color: 'var(--accent-amber)', opacity: 0.7
+        }}>
+          <Shield size={10} />
+          Protected
+        </span>
+
         <div style={{ flex: 1 }} />
         {loading && (
           <div className="flex items-center gap-2" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -406,6 +513,7 @@ export default function ChatView({ onDataChanged }) {
           </div>
         )}
       </div>
+
 
       {/* Input */}
       <div className="chat-input-area">
