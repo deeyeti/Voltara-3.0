@@ -7,6 +7,7 @@ import { registerDbHandlers } from './ipc/db.js'
 import { registerFileHandlers } from './ipc/files.js'
 import { registerOllamaHandlers } from './ipc/ollama.js'
 import { registerStorageHandlers } from './ipc/storage.js'
+import { registerEtlGraphHandlers } from './ipc/etlGraph.js'
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -66,6 +67,7 @@ app.whenReady().then(async () => {
   registerFileHandlers()
   registerOllamaHandlers()
   registerStorageHandlers(appDataPath)
+  registerEtlGraphHandlers()
 
   createWindow()
 

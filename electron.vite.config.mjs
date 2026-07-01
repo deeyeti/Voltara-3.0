@@ -7,7 +7,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        external: ['sql.js', 'pdf-parse', 'papaparse', '@google/generative-ai']
+        external: [
+          'sql.js', 'pdf-parse', 'papaparse', '@google/generative-ai',
+          '@langchain/langgraph', '@langchain/core', '@langchain/google-genai', '@langchain/community',
+          /^@langchain\//
+        ]
       }
     }
   },

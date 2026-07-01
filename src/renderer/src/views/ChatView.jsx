@@ -224,6 +224,14 @@ export default function ChatView({ onDataChanged }) {
     return () => clearTimeout(t)
   }, [securityAlert])
 
+  // Subscribe to LangGraph ETL progress events from main process
+  useEffect(() => {
+    window.api?.etl?.onProgress(() => {}) // handled per-run inside runETL
+    return () => {}
+  }, [])
+
+  const [etlProgressEvent, setEtlProgressEvent] = useState(null)
+
   const clearChat = async () => {
     setMessages([{ ...WELCOME_MSG, id: 1, timestamp: Date.now() }])
     msgIdRef.current = 100
@@ -307,14 +315,13 @@ export default function ChatView({ onDataChanged }) {
     setLoading(false)
   }
 
-  // Full ETL pipeline
+  // Full ETL pipeline — powered by LangGraph
   const runETL = async (filePath) => {
     setLoading(true)
     const fileName = filePath.split('\\').pop() || filePath.split('/').pop()
 
     addMsg({ role: 'user', content: `📄 Process PDF: ${fileName}` })
 
-    // Stage tracking in a single AI message
     const stages = [
       { label: 'Parsing PDF text...', status: 'active', detail: '' },
       { label: 'Generating extraction script...', status: 'pending', detail: '' },
@@ -325,11 +332,12 @@ export default function ChatView({ onDataChanged }) {
     const progressMsgId = newId()
     setMessages(prev => [...prev, {
       id: progressMsgId, role: 'assistant',
-      content: `Processing **${fileName}**...`,
+      content: `⚙️ Processing **${fileName}** with LangGraph ETL...`,
       etlProgress: JSON.parse(JSON.stringify(stages)),
       timestamp: Date.now()
     }])
 
+    // Wire up live progress updates from LangGraph graph nodes
     const updateStages = (index, status, detail = '') => {
       setMessages(prev => prev.map(m => {
         if (m.id !== progressMsgId) return m
@@ -343,49 +351,46 @@ export default function ChatView({ onDataChanged }) {
       }))
     }
 
+    // Listen to streamed progress events from the LangGraph pipeline
+    const progressHandler = ({ stage, status, detail }) => updateStages(stage, status, detail)
+    window.api?.etl?.onProgress(progressHandler)
+
     try {
-      // Step 1: Parse PDF
-      const pdfResult = await window.api.etl.parsePdf(filePath)
-      if (!pdfResult.success) throw new Error(`PDF parse failed: ${pdfResult.error}`)
-      updateStages(0, 'done', `${pdfResult.pages} pages`)
+      // Read current settings for backend routing
+      const savedSettings = await window.api?.storage?.get('settings')
+      const result = await window.api.etl.runPipeline({
+        filePath,
+        backend,
+        ollamaUrl:   savedSettings?.ollamaUrl   || 'http://localhost:11434',
+        ollamaModel: savedSettings?.ollamaModel || 'gemma4:e4b',
+        geminiModel: savedSettings?.geminiModel || 'gemini-2.5-flash'
+      })
 
-      // Step 2: Generate script (routed to active backend)
-      updateStages(1, 'active')
-      const scriptResult = await backendGenerateScript(pdfResult.text, fileName)
-      if (!scriptResult.success) throw new Error(`Script generation failed: ${scriptResult.error}`)
-      updateStages(1, 'done', `Script ready (${backend})`)
+      window.api?.etl?.offProgress(progressHandler)
 
-      // Step 3: Run extraction
-      updateStages(2, 'active')
-      const runResult = await window.api.etl.runScript(scriptResult.script, pdfResult.text)
-      if (!runResult.success) throw new Error(`Extraction failed: ${runResult.error}`)
-      updateStages(2, 'done', `${runResult.count} candidates`)
+      if (!result.success) {
+        throw new Error(result.error)
+      }
 
-      // Step 4: Validate
-      updateStages(3, 'active')
-      const valid = runResult.records.filter(r => r.manufacturer || r.cable_type || r.size || r.part_number)
-      updateStages(3, 'done', `${valid.length} valid`)
-
-      if (valid.length === 0) {
+      if (result.noData) {
         setMessages(prev => prev.map(m => m.id === progressMsgId ? {
           ...m,
           content: `⚠️ No structured cable data found in **${fileName}**.\n\nThe PDF may not contain a product catalog, or the format is unusual. Try asking me to help identify the data manually.`,
           etlProgress: m.etlProgress.map(s => ({ ...s, status: s.status === 'active' ? 'error' : s.status }))
         } : m))
       } else {
-        // Show script + preview with confirm button
-        const confirmId = newId()
+        const { records, script } = result
         setMessages(prev => [...prev.filter(m => m.id !== progressMsgId), {
           id: progressMsgId,
           role: 'assistant',
-          content: `✅ Extraction complete for **${fileName}** — found **${valid.length} cable records**.\n\nHere's the extraction script I generated:`,
+          content: `✅ Extraction complete for **${fileName}** — found **${records.length} cable records**.\n\nHere's the extraction script I generated:`,
           etlProgress: stages.map(s => ({ ...s, status: 'done' })),
-          script: scriptResult.script,
-          records: valid,
+          script,
+          records,
           pendingConfirm: true,
           timestamp: Date.now(),
           onConfirm: async () => {
-            const saveResult = await window.api.db.insertRecords(valid, filePath)
+            const saveResult = await window.api.db.insertRecords(records, filePath)
             if (saveResult.success) {
               setMessages(prev => prev.map(m => m.id === progressMsgId ? {
                 ...m, pendingConfirm: false,
@@ -403,6 +408,7 @@ export default function ChatView({ onDataChanged }) {
         }])
       }
     } catch (err) {
+      window.api?.etl?.offProgress(progressHandler)
       setMessages(prev => prev.map(m => m.id === progressMsgId ? {
         ...m,
         content: `❌ ETL Error: ${err.message}`,

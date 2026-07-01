@@ -16,7 +16,11 @@ const api = {
     generateScript: (pdfText, fileName) =>
       ipcRenderer.invoke('etl:generate-script', { pdfText, fileName }),
     runScript: (script, pdfText) =>
-      ipcRenderer.invoke('etl:run-script', { script, pdfText })
+      ipcRenderer.invoke('etl:run-script', { script, pdfText }),
+    // LangGraph unified pipeline
+    runPipeline: (opts) => ipcRenderer.invoke('etl:run-pipeline', opts),
+    onProgress: (cb) => ipcRenderer.on('etl:progress', (_, data) => cb(data)),
+    offProgress: (cb) => ipcRenderer.removeListener('etl:progress', cb)
   },
 
   // Database

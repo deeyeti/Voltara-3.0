@@ -172,3 +172,37 @@ src/
 ## 🔧 Recommended IDE Setup
 
 [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+
+---
+
+## 📋 Changelog
+
+### v1.2.0 — LangGraph ETL Pipeline *(current)*
+- **LangGraph integration** — ETL pipeline now runs as a stateful graph with typed shared state (`@langchain/langgraph`)
+- **Automatic retry** — script generation retries up to 2× before failing, with progress feedback
+- **Streaming progress** — each graph node pushes real-time `etl:progress` events to the UI via IPC
+- New `etl:run-pipeline` IPC handler replaces three sequential round-trips with a single graph execution
+
+### v1.1.0 — Persistence & Settings
+- **Persistent chat history** — messages saved to `userData` JSON, restored on every launch
+- **Persistent settings** — Gemini API key, model, Ollama URL/model all survive restarts
+- **Clear Chat** button added to chat toolbar
+- Fixed: DevTools confirmed to be dev-only (`is.dev` guard already present)
+- Build system verified: `npm run build:win` produces `CableVault-1.0.0-setup.exe`
+- Updated `electron-builder.yml` with correct `appId: com.cablevault.app`
+
+### v1.0.1 — Model Updates & Bug Fixes
+- Updated Gemini model list to available models: `gemini-2.0-flash`, `gemini-2.5-flash` (default), `gemini-2.5-pro`, `gemini-3.5-flash`
+- Resolved multiple Git merge conflicts across `ChatView.jsx` and `preload/index.js`
+- Fixed Gemini history bug: leading `model` turns stripped before `startChat()` to satisfy API constraint
+- Ollama default model updated to `gemma4:e4b`
+
+### v1.0.0 — Initial Release
+- Electron + React + Vite application scaffold
+- Dual AI backend: Gemini Cloud and Ollama (local)
+- AI-powered ETL pipeline for cable catalog PDFs
+- Sandboxed VM execution of AI-generated extraction scripts
+- Local SQLite database for cable records
+- CSV export
+- PII redaction and prompt injection guard
+- 4-stage ETL progress tracking UI
